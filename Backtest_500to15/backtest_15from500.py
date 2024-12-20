@@ -116,7 +116,7 @@ for month in monthly_portfolio:
     month_idx += 1
     print(f"Month {month_idx}: {month}\n")
 
-print(f"\nThe overall average percentage change in A_Close for the top 15 companies in 2019 is: {average_percentage_change:.2f}%")
+#print(f"\nThe overall average percentage change in A_Close for the top 15 companies in 2019 is: {average_percentage_change:.2f}%")
 
 # Dispose of the engine connection
 engine.dispose()
