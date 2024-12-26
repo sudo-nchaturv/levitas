@@ -38,7 +38,7 @@ class StockAnalyzer:
         """
         query = f"""
         SELECT DISTINCT MAX(A_Date) AS Last_Date_Of_Month
-        FROM ACCORD_DATA.dbo.ACCORD_DATA
+        FROM ACCORD_DATA_SUBSET.dbo.ACCORD_DATA
         WHERE A_Date BETWEEN '{year}-01-01' AND '{year+1}-01-31'
         GROUP BY YEAR(A_Date), MONTH(A_Date)
         ORDER BY Last_Date_Of_Month;
@@ -71,22 +71,79 @@ class StockAnalyzer:
                 current_date_str = current_date.strftime('%Y-%m-%d')
                 next_date_str = next_date.strftime('%Y-%m-%d')
                 
-                # Fetch top 500 companies by market cap
+                 # Modified query to get 5-day Sharpe data for top 500 companies
+
                 top_500_query = f"""
-                SELECT TOP 500 
-                    NSE_Symbol, 
-                    MCAP_Crs AS Last_MCAP, 
-                    A_Date, 
-                    A_Close, 
-                    Sharpe_365
-                FROM ACCORD_DATA.dbo.ACCORD_DATA
-                WHERE A_Date = '{current_date_str}'
-                ORDER BY MCAP_Crs DESC;
+
+                WITH RankedCompanies AS (
+
+                    -- First get top 500 companies by MCAP on the current date
+
+                    SELECT DISTINCT TOP 500 
+
+                        NSE_Symbol,
+
+                        MCAP_Crs
+
+                    FROM ACCORD_DATA_SUBSET.dbo.ACCORD_DATA
+
+                    WHERE A_Date = '{current_date_str}'
+
+                    ORDER BY MCAP_Crs DESC
+
+                ),
+
+                LastFiveDays AS (
+
+                    -- Get last 5 days of data for these companies
+
+                    SELECT 
+
+                        a.NSE_Symbol,
+
+                        a.A_Date,
+
+                        a.A_Close,
+
+                        a.Sharpe_365,
+
+                        a.MCAP_Crs,
+
+                        ROW_NUMBER() OVER (PARTITION BY a.NSE_Symbol ORDER BY a.A_Date DESC) as rn
+
+                    FROM ACCORD_DATA_SUBSET.dbo.ACCORD_DATA a
+
+                    INNER JOIN RankedCompanies r ON a.NSE_Symbol = r.NSE_Symbol
+
+                    WHERE a.A_Date <= '{current_date_str}'
+
+                    AND a.A_Date > DATEADD(day, -5, '{current_date_str}')
+
+                )
+
+                SELECT 
+
+                    NSE_Symbol,
+
+                    MAX(MCAP_Crs) as Last_MCAP,
+
+                    MAX(CASE WHEN rn = 1 THEN A_Close END) as A_Close,
+
+                    AVG(Sharpe_365) as Avg_Sharpe_365
+
+                FROM LastFiveDays
+
+                GROUP BY NSE_Symbol
+
+                HAVING COUNT(*) = 5  -- Ensure we have all 5 days of data
+
+                ORDER BY AVG(Sharpe_365) DESC;
                 """
+                
                 df_top_500 = pd.read_sql_query(top_500_query, self.engine)
                 
                 # Select top 15 companies by Sharpe_365
-                df_top_15 = df_top_500.nlargest(15, 'Sharpe_365')
+                df_top_15 = df_top_500.head(15)
                 monthly_portfolio.append(df_top_15['NSE_Symbol'].tolist())
 
                 # Calculate percentage changes for top 15 companies
@@ -98,7 +155,7 @@ class StockAnalyzer:
                     # Fetch closing prices for current and next month
                     close_query = f"""
                     SELECT A_Date, A_Close
-                    FROM ACCORD_DATA.dbo.ACCORD_DATA
+                    FROM ACCORD_DATA_SUBSET.dbo.ACCORD_DATA
                     WHERE NSE_Symbol = '{symbol}' AND A_Date IN ('{current_date_str}', '{next_date_str}')
                     ORDER BY A_Date;
                     """
@@ -153,10 +210,10 @@ class StockAnalyzer:
 
 def main():
     # Database connection string
-    connection_string = 'mssql+pyodbc://@DELL-123456789\\MSSQLSERVER01/ACCORD_DATA?driver=ODBC+Driver+17+for+SQL+Server'
+    connection_string = 'mssql+pyodbc://@DELL-123456789\\MSSQLSERVER01/ACCORD_DATA_SUBSET?driver=ODBC+Driver+17+for+SQL+Server'
     
     # Years to analyze
-    years = list(range(2011, 2012))
+    years = list(range(2011, 2024))
     
     # Create analyzer
     analyzer = StockAnalyzer(connection_string)
