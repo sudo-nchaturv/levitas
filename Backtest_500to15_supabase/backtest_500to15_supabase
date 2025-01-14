@@ -7,6 +7,10 @@ from typing import List, Tuple
 import time
 import numpy as np
 import matplotlib.pyplot as plt
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 # Configure logging
@@ -14,11 +18,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(m
 logger = logging.getLogger(__name__)
 
 class StockAnalyzer:
-    def __init__(self, connection_string: str):
+    def __init__(self):
         try:
+            connection_string = "postgresql://postgres:vinayakharshul@db.ximsjzcmkjdojzgkxnod.supabase.co:5432/postgres"
+
             self.engine = create_engine(
                 connection_string, 
-                poolclass=QueuePool,
+                # poolclass=QueuePool,
                 pool_size=10,
                 max_overflow=20
             )
@@ -30,10 +36,10 @@ class StockAnalyzer:
         y1 = year-1
         y2 = year+1
         query = f"""
-        SELECT DISTINCT MAX(A_Date) AS Last_Date_Of_Month
-        FROM ACCORD_DATA_SUBSET.dbo.ACCORD_DATA
-        WHERE A_Date BETWEEN '{y1}-12-01' AND '{y2}-01-31'
-        GROUP BY YEAR(A_Date), MONTH(A_Date)
+        SELECT DISTINCT MAX("A_Date") AS Last_Date_Of_Month
+        FROM accord_data
+        WHERE "A_Date" BETWEEN '{y1}-12-01' AND '{y2}-01-31'
+        GROUP BY EXTRACT(YEAR FROM "A_Date"), EXTRACT(MONTH FROM "A_Date")
         ORDER BY Last_Date_Of_Month;
         """
         return pd.read_sql_query(query, self.engine)
@@ -45,14 +51,14 @@ class StockAnalyzer:
         symbols_str = "','".join(symbols)
         query = f"""
         SELECT 
-            A_Date,
-            NSE_Symbol,
-            A_Close
-        FROM ACCORD_DATA_SUBSET.dbo.ACCORD_DATA
-        WHERE NSE_Symbol IN ('{symbols_str}')
-        --AND A_Date BETWEEN DATEADD(day,1,'{start_date}') AND '{end_date}'
-        AND A_Date BETWEEN '{start_date}' AND '{end_date}'
-        ORDER BY A_Date, NSE_Symbol;
+            "A_Date",
+            "NSE_Symbol",
+            "A_Close"
+        FROM accord_data
+        WHERE "NSE_Symbol" IN ('{symbols_str}')
+        --AND "A_Date" BETWEEN DATEADD(day,1,'{start_date}') AND '{end_date}'
+        AND "A_Date" BETWEEN '{start_date}' AND '{end_date}'
+        ORDER BY "A_Date", "NSE_Symbol";
         """
         df = pd.read_sql_query(query, self.engine)
         
@@ -151,12 +157,12 @@ class StockAnalyzer:
         symbols_str = "','".join(symbols)
         query = f"""
         SELECT 
-            A_Date,
-            NSE_Symbol,
-            A_Open
-        FROM ACCORD_DATA_SUBSET.dbo.ACCORD_DATA
-        WHERE NSE_Symbol IN ('{symbols_str}')
-        AND A_Date = '{date}'
+            "A_Date",
+            "NSE_Symbol",
+            "A_Open"
+        FROM accord_data
+        WHERE "NSE_Symbol" IN ('{symbols_str}')
+        AND "A_Date" = '{date}'
         """
         df = pd.read_sql_query(query, self.engine)
         
@@ -234,12 +240,12 @@ class StockAnalyzer:
         top_500_query = f"""
                 WITH RankedCompanies AS (
                     SELECT DISTINCT TOP 500 
-                        NSE_Symbol,
-                        MCAP_Crs
-                    FROM ACCORD_DATA_SUBSET.dbo.ACCORD_DATA
-                    WHERE A_Date = '{current_date_str}'
-                    AND Sharpe_365 IS NOT NULL
-                    ORDER BY MCAP_Crs DESC
+                        "NSE_Symbol",
+                        "MCAP_Crs"
+                    FROM accord_data
+                    WHERE "A_Date" = '{current_date_str}'
+                    AND "Sharpe_365" IS NOT NULL
+                    ORDER BY "MCAP_Crs" DESC
                 ),
                 LastFiveDays AS (
                     SELECT 
@@ -249,21 +255,21 @@ class StockAnalyzer:
                         a.Sharpe_365,
                         a.MCAP_Crs,
                         ROW_NUMBER() OVER (PARTITION BY a.NSE_Symbol ORDER BY a.A_Date DESC) as rn
-                    FROM ACCORD_DATA_SUBSET.dbo.ACCORD_DATA a
+                    FROM accord_data a
                     INNER JOIN RankedCompanies r ON a.NSE_Symbol = r.NSE_Symbol
                     WHERE a.A_Date = '{current_date_str}'
                     --WHERE a.A_Date <= '{current_date_str}'
                     --AND a.A_Date > DATEADD(day, -5, '{current_date_str}')
                 )
                 SELECT TOP {portfolio_size} 
-                    NSE_Symbol
+                    "NSE_Symbol"
                     -- MAX(MCAP_Crs) as Last_MCAP,
                     -- MAX(CASE WHEN rn = 1 THEN A_Close END) as A_Close,
                     --,AVG(Sharpe_365) as Avg_Sharpe_365
                 FROM LastFiveDays
-                GROUP BY NSE_Symbol
+                GROUP BY "NSE_Symbol"
                 -- HAVING COUNT(*) = 5
-                ORDER BY AVG(Sharpe_365) DESC;
+                ORDER BY AVG("Sharpe_365") DESC;
                 """
                 
         # df_top_500 = pd.read_sql_query(top_500_query, self.engine)
@@ -380,13 +386,13 @@ class StockAnalyzer:
             logger.error(f"Error writing results to file: {e}")
 
 def main():
-    connection_string = 'mssql+pyodbc://@DELL-123456789\\MSSQLSERVER01/ACCORD_DATA_SUBSET?driver=ODBC+Driver+17+for+SQL+Server'
+    # connection_string = 'mssql+pyodbc://@DELL-123456789\\MSSQLSERVER01/ACCORD_DATA_SUBSET?driver=ODBC+Driver+17+for+SQL+Server'
     
     #enter the period and portfolio size
     years = list(range(2011,2014))
     portfolio_size = 10
     
-    analyzer = StockAnalyzer(connection_string)
+    analyzer = StockAnalyzer()
     portfolio_drawdown = []
 
     # Lists to store all monthly data
